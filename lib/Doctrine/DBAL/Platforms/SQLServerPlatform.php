@@ -1020,7 +1020,7 @@ class SQLServerPlatform extends AbstractPlatform
                 $lockClause = '';
         }
 
-        return $fromClause . $lockClause;
+        return $fromClause;// . $lockClause;
     }
 
     /**
