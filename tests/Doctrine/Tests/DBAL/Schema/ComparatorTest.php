@@ -992,8 +992,11 @@ class ComparatorTest extends \PHPUnit_Framework_TestCase
         $c = new Comparator();
         $diff = $c->compare($oldSchema, $newSchema);
 
-        $this->assertCount(0, $diff->changedTables['foo']->removedForeignKeys);
-        $this->assertCount(1, $diff->orphanedForeignKeys);
+        // Ensure that there's only one instance of the dropped foreign key.
+        $count = count($diff->changedTables['foo']->removedForeignKeys)
+            + count($diff->orphanedForeignKeys);
+
+        $this->assertEquals(1, $count);
     }
 
     public function testCompareChangedColumn()
