@@ -116,8 +116,27 @@ class Comparator
                     $localTableName = strtolower($foreignKey->getLocalTableName());
                     if (isset($diff->changedTables[$localTableName])) {
                         foreach ($diff->changedTables[$localTableName]->removedForeignKeys as $key => $removedForeignKey) {
-                            unset($diff->changedTables[$localTableName]->removedForeignKeys[$key]);
-                        }
+                            // If the local column on the foreign key has been removed or renamed, the FK needs
+                            // to be kept in removedForeignKeys and removed from orphanedForeignKeys, otherwise
+                            // when you run SchemaDiff::toSaveSql, you'll end up with a leftover bogus foreign key.
+                            $renamedOrRemovedColumns = array_intersect(
+                                array_unique(
+                                    array_merge(
+                                        array_keys($diff->changedTables[$localTableName]->removedColumns),
+                                        array_keys($diff->changedTables[$localTableName]->renamedColumns)
+                                    )
+                                ),
+                                $removedForeignKey->getLocalColumns()
+                            );
+                            if (!empty($renamedOrRemovedColumns)) {
+                                array_splice(
+                                    $diff->orphanedForeignKeys,
+                                    array_search($removedForeignKey, $diff->orphanedForeignKeys),
+                                    1
+                                );
+                                continue;
+                            }
+                            unset($diff->changedTables[$localTableName]->removedForeignKeys[$key]);                        }
                     }
                 }
             }

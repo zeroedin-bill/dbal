@@ -992,8 +992,11 @@ class ComparatorTest extends \PHPUnit_Framework_TestCase
         $c = new Comparator();
         $diff = $c->compare($oldSchema, $newSchema);
 
-        $this->assertCount(0, $diff->changedTables['foo']->removedForeignKeys);
-        $this->assertCount(1, $diff->orphanedForeignKeys);
+        // Ensure that there's only one instance of the dropped foreign key.
+        $count = count($diff->changedTables['foo']->removedForeignKeys)
+            + count($diff->orphanedForeignKeys);
+
+        $this->assertEquals(1, $count);
     }
 
     public function testCompareChangedColumn()
@@ -1220,5 +1223,47 @@ class ComparatorTest extends \PHPUnit_Framework_TestCase
 
             array('0', 'foo', false),
         );
+    }
+
+    public function testForeignKeyRemovalWithRenamedLocalColumn()
+    {
+        $fromSchema = new Schema( array(
+            'table1' => new Table('table1',
+                array(
+                    'id' => new Column('id', Type::getType('integer')),
+                )),
+            'table2' => new Table('table2',
+                array(
+                    'id' => new Column('id', Type::getType('integer')),
+                    'id_table1' => new Column('id_table1', Type::getType('integer'))
+                ),
+                array(),
+                array(
+                    new ForeignKeyConstraint(array('id_table1'), 'table1', array('id'), 'fk_table2_table1')
+                ))
+        ));
+        $toSchema = new Schema( array(
+            'table2' => new Table('table2',
+                array(
+                    'id' => new Column('id', Type::getType('integer')),
+                    'id_table3' => new Column('id_table3', Type::getType('integer'))
+                ),
+                array(),
+                array(
+                    new ForeignKeyConstraint(array('id_table3'), 'table3', array('id'), 'fk_table2_table3')
+                )),
+            'table3' => new Table('table3',
+                array(
+                    'id' => new Column('id', Type::getType('integer'))
+                ))
+        ));
+        $expected = new SchemaDiff();
+        $expected->fromSchema = $fromSchema;
+        $actual = Comparator::compareSchemas($fromSchema, $toSchema);
+        $this->assertArrayHasKey("table2", $actual->changedTables);
+        $this->assertCount(1, $actual->changedTables['table2']->removedForeignKeys, "FK to table1 should be removed.");
+        $this->assertEquals("table1", $actual->changedTables['table2']->removedForeignKeys[0]->getForeignTableName());
+        $this->assertCount(1, $actual->changedTables['table2']->addedForeignKeys, "FK to table3 should be added.");
+        $this->assertEquals("table3", $actual->changedTables['table2']->addedForeignKeys[0]->getForeignTableName());
     }
 }
