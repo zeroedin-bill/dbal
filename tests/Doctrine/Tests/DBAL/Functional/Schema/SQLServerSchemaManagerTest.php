@@ -4,6 +4,7 @@ namespace Doctrine\Tests\DBAL\Functional\Schema;
 
 use Doctrine\DBAL\Schema\Column;
 use Doctrine\DBAL\Schema\ColumnDiff;
+use Doctrine\DBAL\Schema\Index;
 use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Schema\TableDiff;
 use Doctrine\DBAL\Types\Type;
@@ -330,29 +331,28 @@ class SQLServerSchemaManagerTest extends SchemaManagerFunctionalTestCase
         $this->assertEquals('666', $columns['added_commented_type_with_comment']->getComment());
     }
 
-    public function testPkOrdering()
+    public function testNamedPrimaryKeyConstraint()
     {
-        // SQL Server stores index column information in a system table with two
-        // columns that almost always have the same value: index_column_id and key_ordinal.
-        // The only situation when the two values doesn't match up is when a clustered index
-        // is declared that references columns in a different order from which they are
-        // declared in the table. In that case, key_ordinal != index_column_id.
-        // key_ordinal holds the index ordering. index_column_id is just a unique identifier
-        // for index columns within the given index.
-        $table = new Table('sqlsrv_pk_ordering');
-        $table->addColumn('colA', 'integer', array('notnull' => true));
-        $table->addColumn('colB', 'integer', array('notnull' => true));
-        $table->setPrimaryKey(array('colB', 'colA'));
-        $this->_sm->createTable($table);
+        $primaryTable = new Table("primary_related_table");
+        $primaryTable->addColumn("id", "integer", array('autoincrement' => true));
+        $primaryTable->setPrimaryKey(array('id'), "pk_primary_related_table");
+        $this->_sm->createTable($primaryTable);
 
-        $indexes = $this->_sm->listTableIndexes('sqlsrv_pk_ordering');
+        $childTable = new Table("child_related_table");
+        $childTable->addColumn("id", "integer");
+        $childTable->addColumn("id_zone", "integer");
+        $childTable->setPrimaryKey(array('id_zone', 'id'), "pk_child_related_table");
+        $this->_sm->createTable($childTable);
 
-        $this->assertCount(1, $indexes);
+        $childTable = $this->_sm->listTableDetails("child_related_table");
 
-        $firstIndex = current($indexes);
-        $columns = $firstIndex->getColumns();
-        $this->assertCount(2, $columns);
-        $this->assertEquals('colB', $columns[0]);
-        $this->assertEquals('colA', $columns[1]);
+        $tableDiff = new TableDiff("child_related_table");
+        $tableDiff->fromTable = $childTable;
+        $tableDiff->changedIndexes["pk_child_related_table"] = new Index("pk_child_related_table", array('id'), true, true, array("clustered", true));
+        $this->_sm->alterTable($tableDiff);
+        $childTableIndexes = $this->_sm->listTableIndexes("child_related_table");
+        $this->assertArrayHasKey("primary", $childTableIndexes);
+        $this->assertEquals("pk_child_related_table", $childTableIndexes['primary']->getName());
+        $this->assertEquals(1, count($childTableIndexes['primary']->getColumns()));
     }
 }
