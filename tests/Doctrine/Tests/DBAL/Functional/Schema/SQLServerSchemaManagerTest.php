@@ -54,7 +54,7 @@ class SQLServerSchemaManagerTest extends SchemaManagerFunctionalTestCase
         $this->assertEquals($collation, $columns[$columnName]->getPlatformOption('collation'));
     }
 
-    public function testDefaultContraints()
+    public function testDefaultConstraints()
     {
         $table = new Table('sqlsrv_default_constraints');
         $table->addColumn('no_default', 'string');
@@ -180,7 +180,7 @@ class SQLServerSchemaManagerTest extends SchemaManagerFunctionalTestCase
         $table->addColumn('comment_float_0', 'integer', array('comment' => 0.0));
         $table->addColumn('comment_string_0', 'integer', array('comment' => '0'));
         $table->addColumn('comment', 'integer', array('comment' => 'Doctrine 0wnz you!'));
-        $table->addColumn('`comment_quoted`', 'integer', array('comment' => 'Doctrine 0wnz comments for explicitely quoted columns!'));
+        $table->addColumn('`comment_quoted`', 'integer', array('comment' => 'Doctrine 0wnz comments for explicitly quoted columns!'));
         $table->addColumn('create', 'integer', array('comment' => 'Doctrine 0wnz comments for reserved keyword columns!'));
         $table->addColumn('commented_type', 'object');
         $table->addColumn('commented_type_with_comment', 'array', array('comment' => 'Doctrine array type.'));
@@ -198,7 +198,7 @@ class SQLServerSchemaManagerTest extends SchemaManagerFunctionalTestCase
         $this->assertEquals('0', $columns['comment_float_0']->getComment());
         $this->assertEquals('0', $columns['comment_string_0']->getComment());
         $this->assertEquals('Doctrine 0wnz you!', $columns['comment']->getComment());
-        $this->assertEquals('Doctrine 0wnz comments for explicitely quoted columns!', $columns['comment_quoted']->getComment());
+        $this->assertEquals('Doctrine 0wnz comments for explicitly quoted columns!', $columns['comment_quoted']->getComment());
         $this->assertEquals('Doctrine 0wnz comments for reserved keyword columns!', $columns['[create]']->getComment());
         $this->assertNull($columns['commented_type']->getComment());
         $this->assertEquals('Doctrine array type.', $columns['commented_type_with_comment']->getComment());
@@ -354,5 +354,145 @@ class SQLServerSchemaManagerTest extends SchemaManagerFunctionalTestCase
         $this->assertArrayHasKey("primary", $childTableIndexes);
         $this->assertEquals("pk_child_related_table", $childTableIndexes['primary']->getName());
         $this->assertEquals(1, count($childTableIndexes['primary']->getColumns()));
+    }
+
+    /**
+     * @group DBAL-75
+     */
+    public function testTableWithSchema()
+    {
+        $this->_conn->exec($this->_conn->getDatabasePlatform()->getCreateSchemaSQL('nested'));
+
+        $nestedRelatedTable = new \Doctrine\DBAL\Schema\Table('nested.schemarelated');
+        $column = $nestedRelatedTable->addColumn('id', 'integer');
+        $column->setAutoincrement(true);
+        $nestedRelatedTable->setPrimaryKey(array('id'));
+
+        $nestedSchemaTable = new \Doctrine\DBAL\Schema\Table('nested.schematable');
+        $column = $nestedSchemaTable->addColumn('id', 'integer');
+        $column->setAutoincrement(true);
+        $nestedSchemaTable->setPrimaryKey(array('id'));
+        $nestedSchemaTable->addUnnamedForeignKeyConstraint($nestedRelatedTable, array('id'), array('id'));
+
+        $this->_sm->createTable($nestedRelatedTable);
+        $this->_sm->createTable($nestedSchemaTable);
+
+        $tables = $this->_sm->listTableNames();
+        $this->assertContains('nested.schematable', $tables, "The table should be detected with its non-public schema.");
+
+        $nestedSchemaTable = $this->_sm->listTableDetails('nested.schematable');
+        $this->assertTrue($nestedSchemaTable->hasColumn('id'));
+        $this->assertEquals(array('id'), $nestedSchemaTable->getPrimaryKey()->getColumns());
+
+        $relatedFks = $nestedSchemaTable->getForeignKeys();
+        $this->assertEquals(1, count($relatedFks));
+        $relatedFk = array_pop($relatedFks);
+        $this->assertEquals("nested.schemarelated", $relatedFk->getForeignTableName());
+    }
+
+    /**
+     * @param string $name
+     * @dataProvider invalidNamesProvider
+     */
+    public function testTablesWithInvalidNames($name)
+    {
+        $table = new Table($name);
+        $idColumn = $table->addColumn('id', 'integer');
+        $idColumn->setAutoincrement(true);
+        $otherColumn = $table->addColumn('other', 'integer');
+        $otherColumn->setDefault(1);
+        $this->_sm->createTable($table);
+        $tables = $this->_sm->listTableNames();
+        $this->assertContains($name, $tables, "The table name should be detected properly.");
+    }
+
+    /**
+     * @param string $name
+     * @dataProvider invalidNamesProvider
+     */
+    public function testColumnsWithInvalidNames($name, $expected)
+    {
+        $expected = $this->_conn->getDatabasePlatform()->quoteSingleIdentifier($expected);
+        $table = new Table("invalid_colname");
+        $idColumn = $table->addColumn('id', 'integer');
+        $idColumn->setAutoincrement(true);
+        $otherColumn = $table->addColumn($name, 'integer');
+        $otherColumn->setDefault(1);
+        // Test create table
+        $this->_sm->createTable($table);
+        $columns = $this->_sm->listTableColumns("invalid_colname");
+        $this->assertArrayHasKey($expected, $columns, "The column name should be detected.");
+
+        // Check drop column
+        $tableDiff = new TableDiff("invalid_colname", [], [], [$otherColumn]);
+        $this->_sm->alterTable($tableDiff);
+        $columns = $this->_sm->listTableColumns("invalid_colname");
+        $this->assertArrayNotHasKey($expected, $columns, "The column should be dropped.");
+
+        // Check add column
+        $tableDiff = new TableDiff("invalid_colname", [$otherColumn]);
+        $this->_sm->alterTable($tableDiff);
+        $columns = $this->_sm->listTableColumns("invalid_colname");
+        $this->assertArrayHasKey($expected, $columns, "The column should be added.");
+
+        // Clean up
+        $this->_sm->dropTable("invalid_colname");
+    }
+
+    /**
+     * @param string $name
+     * @dataProvider invalidNamesProvider
+     */
+    public function testCreateIndexesOnColumnsWithInvalidNames($name, $expected)
+    {
+        $table = new Table("invalid_colname_index");
+        $idColumn = $table->addColumn('id', 'integer');
+        $idColumn->setAutoincrement(true);
+        $otherColumn = $table->addColumn($name, 'integer');
+        $otherColumn->setDefault(1);
+        $index = $table->addIndex([$name], 'idx_test_invalid_colname')
+            ->getIndex('idx_test_invalid_colname');
+
+        // Test create table
+        $this->_sm->createTable($table);
+        $indexes = $this->_sm->listTableIndexes('invalid_colname_index');
+        $this->assertCount(1, $indexes, "Table should have one index.");
+
+        /** @var Index $firstIndex */
+        $firstIndex = current($indexes);
+        $this->assertCount(1, $firstIndex->getColumns());
+        $this->assertEquals($expected, $firstIndex->getUnquotedColumns()[0]);
+
+        // Check drop index
+        $tableDiff = new TableDiff("invalid_colname_index", [], [], [], [], [], [$index]);
+        $this->_sm->alterTable($tableDiff);
+        $indexes = $this->_sm->listTableIndexes('invalid_colname_index');
+        $this->assertCount(0, $indexes, "Table should have no indexes.");
+
+        // Check add index
+        $tableDiff = new TableDiff("invalid_colname_index", [], [], [], [$index]);
+        $this->_sm->alterTable($tableDiff);
+        $indexes = $this->_sm->listTableIndexes('invalid_colname_index');
+        $this->assertCount(1, $indexes, "Table should have one index.");
+
+        /** @var Index $firstIndex */
+        $firstIndex = current($indexes);
+        $this->assertCount(1, $firstIndex->getColumns());
+        $this->assertEquals($expected, $firstIndex->getUnquotedColumns()[0]);
+
+        // Clean up
+        $this->_sm->dropTable("invalid_colname_index");
+    }
+
+    public function invalidNamesProvider()
+    {
+        return [
+            ['`fo]o`', 'fo]o'],
+            ['`fo[o`', 'fo[o'],
+            ['`!foo`', '!foo'],
+            ['`and`', 'and'],
+            ['`!`', '!'],
+            ['`1foo`', '1foo']
+        ];
     }
 }

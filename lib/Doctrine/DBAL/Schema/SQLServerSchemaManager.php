@@ -114,12 +114,19 @@ class SQLServerSchemaManager extends AbstractSchemaManager
     protected function _getPortableTableForeignKeysList($tableForeignKeys)
     {
         $foreignKeys = array();
+        $defaultSchema = $this->getDefaultSchemaName();
 
         foreach ($tableForeignKeys as $tableForeignKey) {
             if ( ! isset($foreignKeys[$tableForeignKey['ForeignKey']])) {
+                $foreignTable = $this->quoteIncomingIdentifier($tableForeignKey['ReferenceTableName']);
+                if ($tableForeignKey['ReferenceSchemaName'] != $defaultSchema) {
+                    $foreignTable = $this->quoteIncomingIdentifier($tableForeignKey['ReferenceSchemaName'])
+                        . '.'
+                        . $foreignTable;
+                }
                 $foreignKeys[$tableForeignKey['ForeignKey']] = array(
                     'local_columns' => array($this->quoteIncomingIdentifier($tableForeignKey['ColumnName'])),
-                    'foreign_table' => $this->quoteIncomingIdentifier($tableForeignKey['ReferenceTableName']),
+                    'foreign_table' => $foreignTable,
                     'foreign_columns' => array($this->quoteIncomingIdentifier($tableForeignKey['ReferenceColumnName'])),
                     'name' => $tableForeignKey['ForeignKey'],
                     'options' => array(
@@ -171,7 +178,25 @@ class SQLServerSchemaManager extends AbstractSchemaManager
      */
     protected function _getPortableTableDefinition($table)
     {
-        return $this->quoteIncomingIdentifier($table['name']);
+        $defaultSchema = $this->getDefaultSchemaName();
+
+        if ($table['schema_name'] == $defaultSchema) {
+            return $this->quoteIncomingIdentifier($table['table_name']);
+        }
+
+        return $this->quoteIncomingIdentifier($table['schema_name']) . '.' . $this->quoteIncomingIdentifier($table['table_name']);
+    }
+
+    /**
+     * Gets the current user's default schema
+     *
+     * Reference: https://msdn.microsoft.com/en-us/library/ms175068.aspx
+     *
+     * @return string
+     */
+    protected function getDefaultSchemaName()
+    {
+        return $this->_conn->fetchColumn("SELECT SCHEMA_NAME()");
     }
 
     /**
@@ -274,7 +299,7 @@ class SQLServerSchemaManager extends AbstractSchemaManager
     {
         return $this->isIncomingIdentifierValid($name)
             ? $name
-            : $this->_platform->quoteIdentifier($name);
+            : "`" . $name . "`";
     }
 
     /**
@@ -286,6 +311,7 @@ class SQLServerSchemaManager extends AbstractSchemaManager
      */
     private function isIncomingIdentifierValid($name)
     {
-        return (bool)preg_match('/^(?:[_@#[:alpha:]][$@#_[:alnum:]]*|".*"|\[.*\])$/i', $name);
+        return !($this->_platform->getReservedKeywordsList()->isKeyword($name))
+            && (bool)preg_match('/^(?:[_@#[:alpha:]][$@#_[:alnum:]]*|".*"|\[.*\])$/i', $name);
     }
 }
