@@ -390,6 +390,33 @@ class PostgreSqlSchemaManagerTest extends SchemaManagerFunctionalTestCase
         $this->assertEquals('json_array', $columns['foo']->getType()->getName());
         $this->assertEquals(true, $columns['foo']->getPlatformOption('jsonb'));
     }
+
+    /**
+     * @param string $name
+     * @dataProvider invalidNamesProvider
+     */
+    public function testTablesWithInvalidNames($name, $expected)
+    {
+        $table = new Schema\Table($name);
+        $idColumn = $table->addColumn('id', 'integer');
+        $idColumn->setAutoincrement(true);
+        $otherColumn = $table->addColumn('other', 'integer');
+        $otherColumn->setDefault(1);
+        $this->_sm->createTable($table);
+        $tables = $this->_sm->listTableNames();
+        $this->assertContains($expected, $tables, "The table name should be detected with quotes.");
+    }
+
+    public function invalidNamesProvider()
+    {
+        return [
+            ['`fo"o`', '"fo""o"'],
+            ['`!foo`', '"!foo"'],
+            ['`and`', '"and"'],
+            ['`!`', '"!"'],
+            ['`1foo`', '"1foo"']
+        ];
+    }
 }
 
 class MoneyType extends Type

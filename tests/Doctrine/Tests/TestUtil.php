@@ -86,7 +86,7 @@ class TestUtil
         $platform  = $tmpConn->getDatabasePlatform();
 
         if (! self::$initialized) {
-            if ($platform->supportsCreateDropDatabase()) {
+            if (false && $platform->supportsCreateDropDatabase()) {
                 $dbname = $realConn->getDatabase();
                 $realConn->close();
 

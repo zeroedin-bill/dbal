@@ -88,10 +88,13 @@ class SQLServer2012Platform extends SQLServer2008Platform
 
     /**
      * {@inheritdoc}
+     * @see https://github.com/Azure/msphpsql/issues/64
      */
     public function supportsSequences()
     {
-        return true;
+        // Explicitly false here due to incomplete support for PDO::lastInsertId
+        // To be re-enabled once the driver support is fixed.
+        return false;
     }
 
     /**

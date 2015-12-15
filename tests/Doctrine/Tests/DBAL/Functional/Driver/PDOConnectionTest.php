@@ -57,6 +57,17 @@ class PDOConnectionTest extends DbalFunctionalTestCase
      */
     public function testThrowsWrappedExceptionOnPrepare()
     {
+        /*// pdo_sqlsrv is weird, so this test doesn't fly.
+        if ($this->_conn->getDriver() instanceof \Doctrine\DBAL\Driver\PDOSqlsrv\Driver) {
+            $this->markTestSkipped(
+                sprintf(
+                    "The PDO adapter %s does not support setting the PDO::ATTR_EMULATE_PREPARES " .
+                    "attribute on the PDO object, only on a PDO_Statement object.",
+                    $this->_conn->getDriver()->getName()
+                )
+            );
+        }*/
+
         // Emulated prepared statements have to be disabled for this test
         // so that PDO actually communicates with the database server to check the query.
         $this->driverConnection->setAttribute(\PDO::ATTR_EMULATE_PREPARES, false);
